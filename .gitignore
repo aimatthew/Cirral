@@ -12,5 +12,6 @@ keystore.properties
 **/release-signing/
 *.apk
 *.aab
+design/screenshots/
 *.iml
 .DS_Store

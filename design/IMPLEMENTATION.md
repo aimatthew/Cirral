@@ -32,7 +32,6 @@ Rozmycie Compose wymaga Androida 12. Na starszych wersjach pozostaje warstwa tin
 - Sprawdzone na emulatorze: ręczny wybór tła południowego i nocnego, kontrast ekranu Teraz, podgląd automatycznego zachodu, zapis wyboru po ponownym uruchomieniu i powrót do trybu automatycznego.
 - Odtwarzanie i pauza radaru: wybrany czas przesunął się z 17:40 do 16:00 po rozpoczęciu cyklu i zatrzymaniu. Oznaczenia źródeł pozostają widoczne.
 - Log AndroidRuntime nie zawierał błędów podczas sprawdzenia.
-- Zrzuty rzeczywistego interfejsu: `design/screenshots/`. Dane pogodowe są zmienne.
 - Nie testowano na fizycznym telefonie ani na Androidzie 8–11.
 
 ## Zasoby
