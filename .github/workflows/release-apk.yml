@@ -1,0 +1,76 @@
+name: Publish Android APK
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Check version and signing configuration
+        shell: bash
+        env:
+          SIGNING_KEY_B64: ${{ secrets.CIRRAL_SIGNING_KEY_B64 }}
+          SIGNING_PASSWORD: ${{ secrets.CIRRAL_SIGNING_PASSWORD }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          gradle_version="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)"
+          if [[ "$version" != "$gradle_version" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match app version $gradle_version" >&2
+            exit 1
+          fi
+          if [[ -z "$SIGNING_KEY_B64" || -z "$SIGNING_PASSWORD" ]]; then
+            echo "Missing CIRRAL_SIGNING_KEY_B64 or CIRRAL_SIGNING_PASSWORD repository secret" >&2
+            exit 1
+          fi
+
+      - name: Build release APK
+        run: bash ./gradlew :app:assembleRelease :app:lintVitalRelease --no-daemon
+
+      - name: Align, sign and verify APK
+        shell: bash
+        env:
+          SIGNING_KEY_B64: ${{ secrets.CIRRAL_SIGNING_KEY_B64 }}
+          SIGNING_PASSWORD: ${{ secrets.CIRRAL_SIGNING_PASSWORD }}
+        run: |
+          set -euo pipefail
+          tools="$ANDROID_HOME/build-tools/35.0.0"
+          unsigned="app/build/outputs/apk/release/app-release-unsigned.apk"
+          aligned="$RUNNER_TEMP/Cirral-aligned.apk"
+          apk="$RUNNER_TEMP/Cirral.apk"
+          key="$RUNNER_TEMP/cirral-release.jks"
+          trap 'rm -f "$key"' EXIT
+          printf '%s' "$SIGNING_KEY_B64" | base64 --decode > "$key"
+          "$tools/zipalign" -f -p 4 "$unsigned" "$aligned"
+          "$tools/apksigner" sign --ks "$key" --ks-key-alias cirral \
+            --ks-pass env:SIGNING_PASSWORD --key-pass env:SIGNING_PASSWORD \
+            --out "$apk" "$aligned"
+          "$tools/apksigner" verify --verbose "$apk"
+          echo "APK_PATH=$apk" >> "$GITHUB_ENV"
+
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" "$APK_PATH" \
+            --verify-tag --title "Cirral ${GITHUB_REF_NAME#v}" \
+            --notes "Pobierz plik APK poniżej i otwórz go na telefonie z Androidem 8.0 lub nowszym." \
+            --generate-notes --latest

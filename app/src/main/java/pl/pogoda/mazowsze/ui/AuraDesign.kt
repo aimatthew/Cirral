@@ -50,6 +50,7 @@ internal data class AuraPalette(
 )
 internal val nightPalette = AuraPalette()
 internal val LocalAuraPalette = staticCompositionLocalOf { nightPalette }
+internal val glassControlFill = Color(0x70405F67)
 internal data class SkyBackdrop(val size: IntSize, val dim: Float, val imageRes: Int)
 internal val LocalSkyBackdrop = staticCompositionLocalOf<SkyBackdrop?> { null }
 
@@ -84,7 +85,7 @@ internal fun GlassPanel(
         }
         val colors = when {
             dark -> listOf(Color(0xED0C292D), Color(0xE6123033))
-            nav -> listOf(Color(0xB522464A), Color(0xA9173940))
+            nav -> listOf(Color(0x7844656C), Color(0x68415D64))
             backdrop == null -> listOf(Color(0xEE35545B), Color(0xEC17353D))
             else -> listOf(Color(0x5C939C9E), Color(0x445E6F72))
         }

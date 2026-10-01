@@ -25,6 +25,7 @@ class WeatherViewModel(application: Application) : AndroidViewModel(application)
     private val repository = WeatherRepository(application)
     private val displaySettings = application.getSharedPreferences("aura_display", 0)
     private val appUpdates = AppUpdates(application)
+    private val weatherNotifications = WeatherNotificationSettings(application)
     private var updateStateRequestId = 0
     private val updateListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         viewModelScope.launch {
@@ -78,6 +79,10 @@ class WeatherViewModel(application: Application) : AndroidViewModel(application)
         private set
     var updateNotificationsEnabled by mutableStateOf(appUpdates.notificationsEnabled())
         private set
+    var weatherNotificationsEnabled by mutableStateOf(weatherNotifications.enabled())
+        private set
+    var temperatureNotificationHours by mutableStateOf(weatherNotifications.hours())
+        private set
     var updateLoading by mutableStateOf(false)
         private set
     var updateError by mutableStateOf<String?>(null)
@@ -106,6 +111,18 @@ class WeatherViewModel(application: Application) : AndroidViewModel(application)
     fun changeUpdateNotifications(enabled: Boolean) {
         appUpdates.setNotificationsEnabled(enabled)
         updateNotificationsEnabled = enabled
+    }
+
+    fun changeWeatherNotifications(enabled: Boolean) {
+        weatherNotifications.setEnabled(enabled)
+        weatherNotificationsEnabled = enabled
+        WeatherNotificationScheduler.sync(getApplication())
+    }
+
+    fun changeTemperatureNotificationHours(hours: Set<Int>) {
+        weatherNotifications.setHours(hours)
+        temperatureNotificationHours = weatherNotifications.hours()
+        WeatherNotificationScheduler.sync(getApplication())
     }
 
     fun checkForUpdates() {

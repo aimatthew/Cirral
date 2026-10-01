@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -19,11 +20,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.*
@@ -79,9 +85,9 @@ fun AuraApp(model: WeatherViewModel, locationMessage: String?, onLocate: () -> U
                     if(selected==2) RadarScreen(model,onBack={selected=0})
                     else Column(Modifier.fillMaxSize().statusBarsPadding()) {
                         AppHeader(selected, model.place?.label?:"Wybierz miejsce", {selected=3}, {selected=0})
-                        val contentModifier=Modifier.weight(1f).navigationBarsPadding().padding(bottom=if(selected==3)0.dp else 92.dp)
+                        val contentModifier=Modifier.weight(1f).navigationBarsPadding()
                         when(selected) {
-                            0 -> TodayScreen(model,locationMessage,onLocate,{selected=1},contentModifier)
+                            0 -> TodayScreen(model,locationMessage,onLocate,contentModifier)
                             1 -> ForecastScreen(model,locationMessage,onLocate,contentModifier)
                             else -> SettingsScreen(model,locationMessage,onLocate,onLocationSettings,{selected=0},scene,contentModifier,
                                 focusUpdates=openUpdates)
@@ -93,6 +99,32 @@ fun AuraApp(model: WeatherViewModel, locationMessage: String?, onLocate: () -> U
         }
     }
 }
+
+internal fun Modifier.fadeScrollableEdges(topFade: Float, fadeBottom: Boolean): Modifier =
+    graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }.drawWithContent {
+        drawContent()
+        if (topFade > 0f) {
+            drawRect(
+                brush = Brush.verticalGradient(
+                    listOf(Color.White.copy(alpha = 1f - topFade), Color.White),
+                    startY = 0f,
+                    endY = 48.dp.toPx()
+                ),
+                blendMode = BlendMode.DstIn
+            )
+        }
+        if (fadeBottom) {
+            val fadeEnd = (size.height - 62.dp.toPx()).coerceAtLeast(1f)
+            drawRect(
+                brush = Brush.verticalGradient(
+                    listOf(Color.White, Color.Transparent),
+                    startY = (fadeEnd - 48.dp.toPx()).coerceAtLeast(0f),
+                    endY = fadeEnd
+                ),
+                blendMode = BlendMode.DstIn
+            )
+        }
+    }
 
 @Composable
 internal fun IconControl(icon: Glyph, label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
@@ -154,7 +186,7 @@ internal fun WeatherRequired(locationMessage: String?, onLocate: ()->Unit) {
             WeatherGlyph(2,size=76.dp)
             Text("Pogoda wokół Ciebie",fontSize=24.sp,fontWeight=FontWeight.SemiBold)
             Text("Wybierz miejscowość w menu lub użyj lokalizacji telefonu.",fontSize=14.sp)
-            Row(Modifier.clip(RoundedCornerShape(20.dp)).background(Color(0xD414343A))
+            Row(Modifier.clip(RoundedCornerShape(20.dp)).background(glassControlFill)
                 .clickable(onClick=onLocate).padding(horizontal=18.dp,vertical=13.dp),verticalAlignment=Alignment.CenterVertically) {
                 LineIcon(Glyph.LOCATE,Modifier.size(19.dp));Spacer(Modifier.width(10.dp))
                 Text("Użyj lokalizacji telefonu",fontSize=13.sp)
@@ -176,10 +208,12 @@ internal fun DataNotice(model: WeatherViewModel) {
 }
 
 @Composable
-private fun TodayScreen(model: WeatherViewModel, locationMessage: String?, onLocate: ()->Unit, onDetails: ()->Unit, modifier: Modifier) {
+private fun TodayScreen(model: WeatherViewModel, locationMessage: String?, onLocate: ()->Unit, modifier: Modifier) {
     var days by rememberSaveable {mutableStateOf(true)}
     val data=model.weather
-    LazyColumn(modifier.fillMaxSize(),contentPadding=PaddingValues(start=20.dp,end=20.dp,top=4.dp,bottom=18.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+    val listState=rememberLazyListState()
+    val topFade by animateFloatAsState(if(listState.canScrollBackward)1f else 0f,animationSpec=tween(180),label="Zanikanie kart u góry")
+    LazyColumn(modifier.fadeScrollableEdges(topFade,true).fillMaxSize(),state=listState,contentPadding=PaddingValues(start=20.dp,end=20.dp,top=4.dp,bottom=110.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
         item {
             Text(LocalDate.now(data?.let { forecastZone(it.timezone) } ?: ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("EEEE, d MMMM",Locale.forLanguageTag("pl"))).replaceFirstChar{it.uppercase()},
                 modifier=Modifier.fillMaxWidth().padding(bottom=1.dp),textAlign=TextAlign.Center,fontSize=14.sp,color=nightPalette.muted)
@@ -195,13 +229,6 @@ private fun TodayScreen(model: WeatherViewModel, locationMessage: String?, onLoc
                         ForecastCapsule(shortDay(day.date,data.timezone),day.code,temperature(day.maximum,model),temperature(day.minimum,model),day.date==data.days.first().date,modifier=Modifier.weight(1f))
                     } else upcoming(data).take(5).forEach {h ->
                         ForecastCapsule(hour(h.time),h.code,temperature(h.temperature,model),"${h.precipitationProbability}%",false,h.isDay,Modifier.weight(1f))
-                    }
-                }
-            }
-            item {
-                GlassPanel(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).clickable(onClick=onDetails),radius=24.dp,nav=true) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal=20.dp,vertical=14.dp),verticalAlignment=Alignment.CenterVertically) {
-                        Text("Szczegóły pogody",fontSize=14.sp,modifier=Modifier.weight(1f));LineIcon(Glyph.NEXT,Modifier.size(20.dp))
                     }
                 }
             }
@@ -318,8 +345,8 @@ private fun PrecipitationSummary(hours:List<HourWeather>) {
     val firstPotential=hours.firstOrNull{it.precipitationProbability>=30 || it.precipitation>=.1}?:peak
     val headline=when {
         peak==null -> "Prognoza godzinowa niedostępna"
-        peak.precipitationProbability==0 -> "0% szansy opadów w najbliższych 6 h"
-        peak.precipitationProbability<=20 && hours.all{it.precipitation<.1} -> "Mała szansa opadów przez 6 h"
+        peak.precipitationProbability==0 -> "Szansa opadów (6 h): 0%"
+        peak.precipitationProbability<=20 && hours.all{it.precipitation<.1} -> "Mała szansa opadów (6 h)"
         else -> "Możliwy opad około ${hour((firstPotential?:peak).time)}"
     }
     Column(Modifier.fillMaxWidth().padding(horizontal=5.dp,vertical=3.dp)) {
@@ -347,7 +374,7 @@ internal fun SegmentedSwitch(labels:List<String>,selected:Int,onSelect:(Int)->Un
         Row(Modifier.padding(3.dp)) {
             labels.forEachIndexed {index,label->
                 Text(label,fontSize=12.sp,fontWeight=if(index==selected)FontWeight.SemiBold else FontWeight.Normal,textAlign=TextAlign.Center,
-                    modifier=Modifier.weight(1f).clip(RoundedCornerShape(24.dp)).background(if(index==selected)Color(0x668FA5AB) else Color.Transparent)
+                    modifier=Modifier.weight(1f).clip(RoundedCornerShape(24.dp)).background(if(index==selected)Color(0x558FA5AB) else Color.Transparent)
                         .clickable{onSelect(index)}.semantics{this.selected=index==selected;role=Role.Tab}.padding(vertical=9.dp))
             }
         }

@@ -21,9 +21,11 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +55,7 @@ import java.io.File
 import kotlin.math.abs
 import pl.pogoda.mazowsze.WeatherViewModel
 import pl.pogoda.mazowsze.BuildConfig
+import pl.pogoda.mazowsze.showWeatherNotificationPreview
 import pl.pogoda.mazowsze.data.SkyBackgroundMode
 
 @Composable
@@ -62,7 +65,9 @@ internal fun SettingsScreen(model: WeatherViewModel, locationMessage: String?, o
     val uri = LocalUriHandler.current
     val context = LocalContext.current
     val listState = rememberLazyListState()
-    LaunchedEffect(focusUpdates) { if (focusUpdates) listState.scrollToItem(6) }
+    val topFade by androidx.compose.animation.core.animateFloatAsState(if(listState.canScrollBackward)1f else 0f,
+        animationSpec=androidx.compose.animation.core.tween(180),label="Zanikanie kart u góry")
+    LaunchedEffect(focusUpdates) { if (focusUpdates) listState.scrollToItem(8) }
     var pendingInstallFile by remember { mutableStateOf<File?>(null) }
     var installError by remember { mutableStateOf<String?>(null) }
     val installPermission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -77,10 +82,46 @@ internal fun SettingsScreen(model: WeatherViewModel, locationMessage: String?, o
         } else installError = "Zezwól Cirral na instalowanie aplikacji w ustawieniach telefonu."
         pendingInstallFile = null
     }
+    var pendingNotificationAction by remember { mutableStateOf("") }
+    var notificationMessage by remember { mutableStateOf<String?>(null) }
+    var showHourPicker by remember { mutableStateOf(false) }
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        model.changeUpdateNotifications(granted)
+        if (granted) when (pendingNotificationAction) {
+            "updates" -> model.changeUpdateNotifications(true)
+            "weather" -> model.changeWeatherNotifications(true)
+            "preview" -> showWeatherNotificationPreview(context)
+        } else notificationMessage = "Włącz powiadomienia Cirral w ustawieniach telefonu."
+        pendingNotificationAction = ""
+    }
+    fun requestNotifications(action: String) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingNotificationAction = action
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else when (action) {
+            "updates" -> model.changeUpdateNotifications(true)
+            "weather" -> model.changeWeatherNotifications(true)
+            "preview" -> showWeatherNotificationPreview(context)
+        }
     }
     val keyboard = LocalSoftwareKeyboardController.current
+    if (showHourPicker) AlertDialog(
+        onDismissRequest = { showHourPicker = false },
+        title = { Text("Wybierz godzinę") },
+        text = {
+            androidx.compose.foundation.lazy.LazyColumn(Modifier.height(320.dp)) {
+                items(24) { hour ->
+                    Text(String.format(Locale.getDefault(), "%02d:00", hour),
+                        modifier = Modifier.fillMaxWidth().clickable(role = Role.Button) {
+                            model.changeTemperatureNotificationHours(model.temperatureNotificationHours + hour)
+                            showHourPicker = false
+                        }.padding(horizontal = 14.dp, vertical = 12.dp), fontSize = 14.sp)
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { showHourPicker = false }) { Text("Zamknij") } }
+    )
     var query by remember { mutableStateOf("") }
     var sourcesExpanded by remember { mutableStateOf(false) }
     LaunchedEffect(query) {
@@ -90,7 +131,7 @@ internal fun SettingsScreen(model: WeatherViewModel, locationMessage: String?, o
         } else model.clearSearch()
     }
     androidx.compose.foundation.lazy.LazyColumn(
-        modifier.fillMaxSize(), state = listState,
+        modifier.fadeScrollableEdges(topFade, false).fillMaxSize(), state = listState,
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 26.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
@@ -106,7 +147,7 @@ internal fun SettingsScreen(model: WeatherViewModel, locationMessage: String?, o
                         }
                     }
                     Spacer(Modifier.height(12.dp))
-                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(19.dp)).background(Color(0xA314343A))
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(19.dp)).background(glassControlFill)
                         .clickable(onClick = onLocate).padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
                         LineIcon(Glyph.LOCATE, Modifier.size(18.dp))
                         Spacer(Modifier.width(9.dp))
@@ -119,7 +160,7 @@ internal fun SettingsScreen(model: WeatherViewModel, locationMessage: String?, o
                                 modifier = Modifier.clickable(onClick = onLocationSettings).padding(top = 8.dp, bottom = 2.dp))
                     }
                     Spacer(Modifier.height(16.dp))
-                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(19.dp)).background(Color(0xA314343A))
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(19.dp)).background(glassControlFill)
                         .padding(horizontal = 14.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
                         LineIcon(Glyph.SEARCH, Modifier.size(18.dp))
                         Spacer(Modifier.width(10.dp))
@@ -225,6 +266,64 @@ internal fun SettingsScreen(model: WeatherViewModel, locationMessage: String?, o
                 }
             }
         }
+        item { Text("Powiadomienia pogodowe", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 4.dp)) }
+        item {
+            GlassPanel(Modifier.fillMaxWidth(), radius = 26.dp) {
+                Column(Modifier.padding(17.dp)) {
+                    Row(Modifier.fillMaxWidth().heightIn(min = 58.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Alerty o deszczu i temperaturze", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Dla wybranego miejsca · niezależnie od aktualizacji aplikacji", fontSize = 10.sp, color = nightPalette.muted)
+                        }
+                        Switch(model.weatherNotificationsEnabled, onCheckedChange = { enabled ->
+                            if (enabled) requestNotifications("weather") else model.changeWeatherNotifications(false)
+                        }, modifier = Modifier.semantics { contentDescription = "Alerty o deszczu i temperaturze" },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF63858B),
+                                uncheckedThumbColor = Color(0xFFCFDADC), uncheckedTrackColor = Color(0xFF2B484F)))
+                    }
+                    Text("Możliwy opad sprawdzamy co około 30 minut. Porównujemy dwie prognozy; poza obszarem dokładnych danych 15-minutowych stosujemy wyższy próg opadu.",
+                        fontSize = 10.sp, lineHeight = 15.sp, color = nightPalette.muted, modifier = Modifier.padding(top = 6.dp))
+                    SettingsDivider()
+                    Text("Godziny temperatury", fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(top = 12.dp))
+                    Text("Bez wybranej godziny dostaniesz tylko alerty o możliwym opadzie.",
+                        fontSize = 10.sp, color = nightPalette.muted, modifier = Modifier.padding(top = 3.dp, bottom = 8.dp))
+                    model.temperatureNotificationHours.sorted().forEach { hour ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(15.dp))
+                            .background(glassControlFill).padding(horizontal = 13.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Text(String.format(Locale.getDefault(), "%02d:00", hour), fontSize = 12.sp,
+                                modifier = Modifier.weight(1f))
+                            Text("Usuń", fontSize = 11.sp, color = nightPalette.accent,
+                                modifier = Modifier.clickable(role = Role.Button) {
+                                    model.changeTemperatureNotificationHours(model.temperatureNotificationHours - hour)
+                                }.padding(5.dp))
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth().padding(top = 5.dp).heightIn(min = 46.dp)
+                        .clip(RoundedCornerShape(16.dp)).background(glassControlFill)
+                        .clickable(role = Role.Button) { showHourPicker = true }
+                        .padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("+ Dodaj godzinę", fontSize = 12.sp)
+                    }
+                    Row(Modifier.fillMaxWidth().padding(top = 12.dp).heightIn(min = 46.dp)
+                        .clip(RoundedCornerShape(16.dp)).background(Color(0x66577F85))
+                        .clickable(role = Role.Button) { requestNotifications("preview") }
+                        .padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Pokaż przykładowe powiadomienia", fontSize = 12.sp)
+                    }
+                    Text("Podgląd jest tymczasowy i pokazuje przykładowy deszcz oraz temperaturę.",
+                        fontSize = 10.sp, color = nightPalette.muted, modifier = Modifier.padding(top = 5.dp))
+                    notificationMessage?.let { message ->
+                        Text(message, fontSize = 10.sp, color = nightPalette.muted,
+                            modifier = Modifier.clickable {
+                                context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                    .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
+                            }.padding(top = 8.dp))
+                    }
+                }
+            }
+        }
         item { Text("Aktualizacje", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 4.dp)) }
         item {
             GlassPanel(Modifier.fillMaxWidth(), radius = 26.dp) {
@@ -250,7 +349,7 @@ internal fun SettingsScreen(model: WeatherViewModel, locationMessage: String?, o
                     }
                     Spacer(Modifier.height(13.dp))
                     Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xA314343A))
+                        .background(glassControlFill)
                         .clickable(enabled = !model.updateLoading && !model.downloadLoading, role = Role.Button) { model.checkForUpdates() }
                         .padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (model.updateLoading) CircularProgressIndicator(Modifier.size(18.dp), color = nightPalette.accent, strokeWidth = 2.dp)
@@ -293,6 +392,7 @@ internal fun SettingsScreen(model: WeatherViewModel, locationMessage: String?, o
                     }
                     installError?.let { Text(it, fontSize = 11.sp, color = nightPalette.muted,
                         modifier = Modifier.padding(bottom = 10.dp)) }
+                    Spacer(Modifier.height(6.dp))
                     SettingsDivider()
                     Row(Modifier.fillMaxWidth().heightIn(min = 58.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
@@ -300,10 +400,7 @@ internal fun SettingsScreen(model: WeatherViewModel, locationMessage: String?, o
                             Text("Gdy pojawi się nowe wydanie", fontSize = 10.sp, color = nightPalette.muted)
                         }
                         Switch(model.updateNotificationsEnabled, onCheckedChange = { enabled ->
-                            if (enabled && Build.VERSION.SDK_INT >= 33 &&
-                                context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-                            ) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                            else model.changeUpdateNotifications(enabled)
+                            if (enabled) requestNotifications("updates") else model.changeUpdateNotifications(false)
                         }, modifier = Modifier.semantics { contentDescription = "Powiadamiaj o aktualizacjach" },
                             colors = SwitchDefaults.colors(
                             checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF63858B),
@@ -322,7 +419,7 @@ internal fun SettingsScreen(model: WeatherViewModel, locationMessage: String?, o
                         LineIcon(if (sourcesExpanded) Glyph.DOWN else Glyph.NEXT, Modifier.size(18.dp))
                     }
                     if (sourcesExpanded) {
-                        Text("Prognoza i wyszukiwanie miast: Open-Meteo / GeoNames. Radar: historyczne obserwacje RainViewer. Mapa: OpenFreeMap i OpenStreetMap.",
+                        Text("Prognoza i wyszukiwanie miast: Open-Meteo. Alerty o opadach: Best Match i model ECMWF. Radar: historyczne obserwacje RainViewer, nie prognoza na 2 godziny. Mapa: OpenFreeMap i OpenStreetMap.",
                             fontSize = 11.sp, lineHeight = 17.sp, color = nightPalette.muted, modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
                         Text("Open-Meteo ↗", fontSize = 11.sp, modifier = Modifier.clickable { uri.openUri("https://open-meteo.com/") }.padding(vertical = 8.dp))
                         Text("RainViewer ↗", fontSize = 11.sp, modifier = Modifier.clickable { uri.openUri("https://www.rainviewer.com/") }.padding(vertical = 8.dp))
@@ -399,11 +496,11 @@ private fun SettingsDivider() {
 private fun SettingsChoice(title: String, left: String, right: String, selected: Int, onSelect: (Int) -> Unit) {
     Row(Modifier.fillMaxWidth().heightIn(min = 58.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(title, modifier = Modifier.weight(1f), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-        Row(Modifier.clip(RoundedCornerShape(18.dp)).background(Color(0x6614333A)).padding(3.dp)) {
+        Row(Modifier.clip(RoundedCornerShape(18.dp)).background(glassControlFill).padding(3.dp)) {
             listOf(left, right).forEachIndexed { index, label ->
                 Text(label, color = Color.White, fontSize = 11.sp,
                     modifier = Modifier.clip(RoundedCornerShape(15.dp))
-                        .background(if(index == selected) Color(0x99769096) else Color.Transparent)
+                        .background(if(index == selected) Color(0x66769096) else Color.Transparent)
                         .clickable { onSelect(index) }.padding(horizontal = 11.dp, vertical = 9.dp))
             }
         }

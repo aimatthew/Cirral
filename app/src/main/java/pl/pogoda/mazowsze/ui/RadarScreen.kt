@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -42,6 +43,7 @@ fun RadarScreen(model: WeatherViewModel, onBack: () -> Unit, modifier: Modifier 
     var selected by remember { mutableIntStateOf(0) }
     var shown by remember { mutableIntStateOf(-1) }
     var playing by remember { mutableStateOf(false) }
+    var detailsExpanded by remember { mutableStateOf(false) }
     var recenter by remember { mutableIntStateOf(0) }
     val indicated = if (playing && shown in frames.indices) shown else selected
 
@@ -61,7 +63,7 @@ fun RadarScreen(model: WeatherViewModel, onBack: () -> Unit, modifier: Modifier 
     BoxWithConstraints(modifier.fillMaxSize()) {
         RadarMap(data, frames, selected, model.place, recenter, Modifier.fillMaxSize()) { shown = it }
         Box(Modifier.fillMaxWidth().height(170.dp).background(Brush.verticalGradient(listOf(Color(0xD0061425), Color.Transparent))))
-        Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(410.dp)
+        Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(300.dp)
             .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xB9051222)))))
         Column(Modifier.statusBarsPadding().padding(start = 12.dp, end = 20.dp, top = 5.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -70,12 +72,12 @@ fun RadarScreen(model: WeatherViewModel, onBack: () -> Unit, modifier: Modifier 
                     Text("Radar opadów", fontSize = 19.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold)
                     Text("Obserwacje · ${model.place?.label ?: "Mazowsze"}", fontSize = 11.sp, color = nightPalette.muted)
                 }
-                GlassPanel(radius = 18.dp, dark = true, frosted = false) {
+                GlassPanel(radius = 18.dp, nav = true, frosted = false) {
                     IconControl(Glyph.LOCATE, "Wyśrodkuj mapę na wybranej lokalizacji", { recenter++ })
                 }
             }
             Spacer(Modifier.height(11.dp))
-            GlassPanel(radius = 24.dp, dark = true, frosted = false) {
+            GlassPanel(radius = 24.dp, nav = true, frosted = false) {
                 Row(Modifier.clickable { lastHour = !lastHour }.padding(horizontal = 14.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
                     LineIcon(Glyph.CLOCK, Modifier.size(17.dp))
                     Spacer(Modifier.width(8.dp))
@@ -88,13 +90,15 @@ fun RadarScreen(model: WeatherViewModel, onBack: () -> Unit, modifier: Modifier 
         if (model.radarLoading && frames.isEmpty()) CircularProgressIndicator(Modifier.align(Alignment.Center))
         GlassPanel(
             Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(start = 20.dp, end = 20.dp, bottom = 99.dp)
-                .fillMaxWidth().heightIn(max = maxHeight * .40f), radius = 28.dp, dark = true, frosted = false
+                .fillMaxWidth().heightIn(max = maxHeight * .40f), radius = 24.dp, nav = true, frosted = false
         ) {
-            Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 12.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(frames.getOrNull(indicated)?.let { radarTime(it.timeSeconds) } ?: "Radar", fontSize = 21.sp, lineHeight = 27.sp, fontWeight = FontWeight.SemiBold)
-                        Text("Obraz radarowy", fontSize = 11.sp, color = nightPalette.muted)
+                    Text(frames.getOrNull(indicated)?.let { radarTime(it.timeSeconds) } ?: "Radar",
+                        modifier = Modifier.weight(1f), fontSize = 19.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold)
+                    IconButton(onClick = { detailsExpanded = !detailsExpanded }, modifier = Modifier.size(44.dp)
+                        .semantics { contentDescription = if (detailsExpanded) "Ukryj informacje o radarze" else "Pokaż informacje o radarze" }) {
+                        Text("ⓘ", fontSize = 19.sp, color = nightPalette.muted)
                     }
                     FilledTonalIconButton(
                         onClick = { playing = !playing }, enabled = frames.size > 1 && shown in frames.indices,
@@ -112,20 +116,21 @@ fun RadarScreen(model: WeatherViewModel, onBack: () -> Unit, modifier: Modifier 
                 } else {
                     Text(model.radarError ?: "Pobieram obrazy radaru…", fontSize = 11.sp)
                 }
-                Spacer(Modifier.height(8.dp))
-                Box(Modifier.fillMaxWidth().height(5.dp).background(Brush.horizontalGradient(listOf(
+                Spacer(Modifier.height(4.dp))
+                Box(Modifier.fillMaxWidth().height(4.dp).background(Brush.horizontalGradient(listOf(
                     Color(0xFF6CD1EB), Color(0xFF00A3E0), Color(0xFF005588), Color(0xFFFFE000), Color(0xFFFF4400)
                 ))))
                 Row(Modifier.fillMaxWidth().padding(top = 3.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Słabszy opad", fontSize = 9.sp)
                     Text("Silniejszy", fontSize = 9.sp)
                 }
-                if (model.radarError != null && frames.isNotEmpty()) Text("Nie udało się odświeżyć klatek.", fontSize = 9.sp)
-                frames.lastOrNull()?.let { if (System.currentTimeMillis() - it.timeSeconds * 1000L > 30 * 60 * 1000L) Text("Ostatni obraz ma ponad 30 minut.", fontSize = 9.sp) }
-                Text("Kolorowe pola oznaczają opad. Pusta mapa może oznaczać brak opadu lub zasięgu radaru.", fontSize = 9.sp, lineHeight = 13.sp, color = nightPalette.muted, modifier = Modifier.padding(top = 4.dp))
+                if (model.radarError != null && frames.isNotEmpty()) Text("Nie udało się odświeżyć klatek.", fontSize = 10.sp)
+                frames.lastOrNull()?.let { if (System.currentTimeMillis() - it.timeSeconds * 1000L > 30 * 60 * 1000L) Text("Ostatni obraz ma ponad 30 minut.", fontSize = 10.sp) }
+                if (detailsExpanded) Text("Kolorowe pola oznaczają opad. Pusta mapa może oznaczać brak opadu lub zasięgu radaru.",
+                    fontSize = 11.sp, lineHeight = 15.sp, color = nightPalette.muted, modifier = Modifier.padding(top = 6.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("RainViewer ↗", fontSize = 9.sp, modifier = Modifier.clickable { uri.openUri("https://www.rainviewer.com/") }.padding(vertical = 6.dp))
-                    Text("© OpenStreetMap · OpenFreeMap", fontSize = 9.sp, modifier = Modifier.clickable { uri.openUri("https://www.openstreetmap.org/copyright") }.padding(vertical = 6.dp))
+                    Text("RainViewer ↗", fontSize = 10.sp, modifier = Modifier.clickable { uri.openUri("https://www.rainviewer.com/") }.padding(vertical = 3.dp))
+                    Text("© OpenStreetMap · OpenFreeMap", fontSize = 10.sp, modifier = Modifier.clickable { uri.openUri("https://www.openstreetmap.org/copyright") }.padding(vertical = 3.dp))
                 }
             }
         }

@@ -8,6 +8,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -41,7 +42,10 @@ internal fun ForecastScreen(model:WeatherViewModel,locationMessage:String?,onLoc
     val hours=data?.let{upcoming(it).take(24)}.orEmpty()
     val index=selected.coerceIn(0,hours.lastIndex.coerceAtLeast(0))
     val current=hours.getOrNull(index)
-    LazyColumn(modifier.fillMaxSize(),contentPadding=PaddingValues(start=20.dp,end=20.dp,top=8.dp,bottom=20.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+    val listState=rememberLazyListState()
+    val topFade by androidx.compose.animation.core.animateFloatAsState(if(listState.canScrollBackward)1f else 0f,
+        animationSpec=androidx.compose.animation.core.tween(180),label="Zanikanie kart u góry")
+    LazyColumn(modifier.fadeScrollableEdges(topFade,true).fillMaxSize(),state=listState,contentPadding=PaddingValues(start=20.dp,end=20.dp,top=8.dp,bottom=110.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
         item {SegmentedSwitch(listOf("24 godziny","10 dni"),mode,{mode=it},Modifier.padding(horizontal=22.dp))}
         if(model.place==null) {item{WeatherRequired(locationMessage,onLocate)};return@LazyColumn}
         if(model.weatherError!=null || data==null) item {DataNotice(model)}
