@@ -46,6 +46,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+        AppUpdateScheduler.schedule(this)
         enableEdgeToEdge(statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT), navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT))
         setContent { CirralEntry() }
     }
@@ -102,6 +103,7 @@ class MainActivity : ComponentActivity() {
         }
         AuraApp(
             model = model,
+            openUpdates = intent.getBooleanExtra("open_updates", false),
             locationMessage = locationMessage,
             onLocate = {
                 locationMessage = "Ustalam lokalizację…"

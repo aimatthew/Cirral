@@ -47,8 +47,9 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 @Composable
-fun AuraApp(model: WeatherViewModel, locationMessage: String?, onLocate: () -> Unit, onLocationSettings: () -> Unit) {
-    var selected by rememberSaveable { mutableIntStateOf(0) }
+fun AuraApp(model: WeatherViewModel, locationMessage: String?, onLocate: () -> Unit, onLocationSettings: () -> Unit,
+    openUpdates: Boolean = false) {
+    var selected by rememberSaveable { mutableIntStateOf(if (openUpdates) 3 else 0) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     var clock by remember { mutableStateOf(Instant.now()) }
     LaunchedEffect(model.skyBackgroundMode) {
@@ -82,7 +83,8 @@ fun AuraApp(model: WeatherViewModel, locationMessage: String?, onLocate: () -> U
                         when(selected) {
                             0 -> TodayScreen(model,locationMessage,onLocate,{selected=1},contentModifier)
                             1 -> ForecastScreen(model,locationMessage,onLocate,contentModifier)
-                            else -> SettingsScreen(model,locationMessage,onLocate,onLocationSettings,{selected=0},scene,contentModifier)
+                            else -> SettingsScreen(model,locationMessage,onLocate,onLocationSettings,{selected=0},scene,contentModifier,
+                                focusUpdates=openUpdates)
                         }
                     }
                     if (selected != 3) BottomNavigation(selected,{selected=it},Modifier.align(Alignment.BottomCenter))

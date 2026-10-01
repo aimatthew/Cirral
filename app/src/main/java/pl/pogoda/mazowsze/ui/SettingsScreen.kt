@@ -1,9 +1,19 @@
 package pl.pogoda.mazowsze.ui
 
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,9 +32,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.FileProvider
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -33,15 +47,39 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import java.util.Locale
+import java.text.DateFormat
+import java.util.Date
+import java.io.File
 import kotlin.math.abs
 import pl.pogoda.mazowsze.WeatherViewModel
+import pl.pogoda.mazowsze.BuildConfig
 import pl.pogoda.mazowsze.data.SkyBackgroundMode
 
 @Composable
 internal fun SettingsScreen(model: WeatherViewModel, locationMessage: String?, onLocate: () -> Unit,
     onLocationSettings: () -> Unit, onPlaceSelected: () -> Unit,
-    currentScene: SkyBackgroundMode, modifier: Modifier) {
+    currentScene: SkyBackgroundMode, modifier: Modifier, focusUpdates: Boolean = false) {
     val uri = LocalUriHandler.current
+    val context = LocalContext.current
+    val listState = rememberLazyListState()
+    LaunchedEffect(focusUpdates) { if (focusUpdates) listState.scrollToItem(6) }
+    var pendingInstallFile by remember { mutableStateOf<File?>(null) }
+    var installError by remember { mutableStateOf<String?>(null) }
+    val installPermission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        val file = pendingInstallFile
+        if (file != null && context.packageManager.canRequestPackageInstalls()) {
+            try {
+                launchApkInstaller(context, file)
+                installError = null
+            } catch (_: Exception) {
+                installError = "Nie można uruchomić instalatora APK."
+            }
+        } else installError = "Zezwól Cirral na instalowanie aplikacji w ustawieniach telefonu."
+        pendingInstallFile = null
+    }
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        model.changeUpdateNotifications(granted)
+    }
     val keyboard = LocalSoftwareKeyboardController.current
     var query by remember { mutableStateOf("") }
     var sourcesExpanded by remember { mutableStateOf(false) }
@@ -52,7 +90,8 @@ internal fun SettingsScreen(model: WeatherViewModel, locationMessage: String?, o
         } else model.clearSearch()
     }
     androidx.compose.foundation.lazy.LazyColumn(
-        modifier.fillMaxSize(), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 26.dp),
+        modifier.fillMaxSize(), state = listState,
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 26.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         item {
@@ -186,6 +225,94 @@ internal fun SettingsScreen(model: WeatherViewModel, locationMessage: String?, o
                 }
             }
         }
+        item { Text("Aktualizacje", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 4.dp)) }
+        item {
+            GlassPanel(Modifier.fillMaxWidth(), radius = 26.dp) {
+                Column(Modifier.padding(17.dp)) {
+                    Text("Cirral ${BuildConfig.VERSION_NAME}", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Mniej więcej co 6 godzin sprawdzamy GitHub i pobieramy nowszy APK.", fontSize = 11.sp,
+                        color = nightPalette.muted, modifier = Modifier.padding(top = 3.dp))
+                    Spacer(Modifier.height(14.dp))
+                    val update = model.updateSnapshot
+                    val status = when {
+                        model.updateLoading -> "Sprawdzam aktualizacje…"
+                        model.updateError != null -> model.updateError!!
+                        update.checkedAt == 0L -> "Jeszcze nie sprawdzono aktualizacji."
+                        update.isAvailable && model.downloadLoading -> "Pobieram wersję ${update.latestVersion}: ${model.downloadProgress}%"
+                        update.isAvailable && model.updateReady -> "Wersja ${update.latestVersion} jest gotowa do instalacji."
+                        update.isAvailable -> "Dostępna wersja ${update.latestVersion}"
+                        else -> "Masz najnowszą wersję."
+                    }
+                    Text(status, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    if (update.checkedAt > 0L) {
+                        Text("Ostatnio sprawdzono: ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(update.checkedAt))}",
+                            fontSize = 10.sp, color = nightPalette.muted, modifier = Modifier.padding(top = 4.dp))
+                    }
+                    Spacer(Modifier.height(13.dp))
+                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xA314343A))
+                        .clickable(enabled = !model.updateLoading && !model.downloadLoading, role = Role.Button) { model.checkForUpdates() }
+                        .padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (model.updateLoading) CircularProgressIndicator(Modifier.size(18.dp), color = nightPalette.accent, strokeWidth = 2.dp)
+                        else LineIcon(Glyph.REFRESH, Modifier.size(18.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text("Sprawdź teraz", fontSize = 12.sp)
+                    }
+                    if (update.isAvailable) {
+                        if (update.apkUrl == null) {
+                            Text("To wydanie nie zawiera pliku APK do instalacji.", fontSize = 11.sp,
+                                color = nightPalette.muted, modifier = Modifier.padding(top = 10.dp, bottom = 12.dp))
+                        } else {
+                            Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 4.dp)
+                                .heightIn(min = 48.dp).clip(RoundedCornerShape(16.dp))
+                                .background(Color(0x66577F85))
+                                .clickable(enabled = !model.downloadLoading && !model.updateLoading, role = Role.Button) {
+                                    installError = null
+                                    model.downloadUpdate { file ->
+                                        if (context.packageManager.canRequestPackageInstalls()) {
+                                            try {
+                                                launchApkInstaller(context, file)
+                                                installError = null
+                                            } catch (_: Exception) {
+                                                installError = "Nie można uruchomić instalatora APK."
+                                            }
+                                        } else {
+                                            pendingInstallFile = file
+                                            installPermission.launch(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                                Uri.parse("package:${context.packageName}")))
+                                        }
+                                    }
+                                }.padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(if (model.downloadLoading) "Pobieranie ${model.downloadProgress}%"
+                                    else if (model.updateReady) "Zainstaluj pobraną wersję"
+                                    else "Pobierz APK i zainstaluj", fontSize = 12.sp)
+                            }
+                            Text("Instalację trzeba zatwierdzić w systemie Android.", fontSize = 10.sp,
+                                color = nightPalette.muted, modifier = Modifier.padding(bottom = 10.dp))
+                        }
+                    }
+                    installError?.let { Text(it, fontSize = 11.sp, color = nightPalette.muted,
+                        modifier = Modifier.padding(bottom = 10.dp)) }
+                    SettingsDivider()
+                    Row(Modifier.fillMaxWidth().heightIn(min = 58.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Powiadamiaj o aktualizacjach", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Gdy pojawi się nowe wydanie", fontSize = 10.sp, color = nightPalette.muted)
+                        }
+                        Switch(model.updateNotificationsEnabled, onCheckedChange = { enabled ->
+                            if (enabled && Build.VERSION.SDK_INT >= 33 &&
+                                context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                            ) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            else model.changeUpdateNotifications(enabled)
+                        }, modifier = Modifier.semantics { contentDescription = "Powiadamiaj o aktualizacjach" },
+                            colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF63858B),
+                            uncheckedThumbColor = Color(0xFFCFDADC), uncheckedTrackColor = Color(0xFF2B484F)
+                        ))
+                    }
+                }
+            }
+        }
         item {
             GlassPanel(Modifier.fillMaxWidth(), radius = 22.dp, nav = true) {
                 Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
@@ -205,6 +332,14 @@ internal fun SettingsScreen(model: WeatherViewModel, locationMessage: String?, o
             }
         }
     }
+}
+
+private fun launchApkInstaller(context: Context, file: File) {
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    context.startActivity(Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+        data = uri
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    })
 }
 
 @Composable
