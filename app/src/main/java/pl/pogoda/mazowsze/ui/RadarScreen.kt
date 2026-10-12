@@ -14,6 +14,7 @@ import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -114,7 +115,10 @@ fun RadarScreen(model: WeatherViewModel, onBack: () -> Unit, modifier: Modifier 
                         Text(radarTime(frames.last().timeSeconds), fontSize = 10.sp)
                     }
                 } else {
-                    Text(model.radarError ?: "Pobieram obrazy radaru…", fontSize = 11.sp)
+                    if (model.radarError != null) {
+                        Text(model.radarError!!, fontSize = 11.sp)
+                        TextButton(onClick = model::refreshRadar) { Text("Spróbuj ponownie") }
+                    } else Text("Pobieram obrazy radaru…", fontSize = 11.sp)
                 }
                 Spacer(Modifier.height(4.dp))
                 Box(Modifier.fillMaxWidth().height(4.dp).background(Brush.horizontalGradient(listOf(

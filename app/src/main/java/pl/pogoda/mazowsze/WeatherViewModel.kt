@@ -2,6 +2,8 @@ package pl.pogoda.mazowsze
 
 import android.app.Application
 import android.content.SharedPreferences
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -241,7 +243,7 @@ class WeatherViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             runCatching { repository.fetchWeather(target) }
                 .onSuccess { result -> if (requestId == weatherRequestId && place == target) weather = result }
-                .onFailure { if (requestId == weatherRequestId) weatherError = it.message ?: "Nie udało się pobrać prognozy" }
+                .onFailure { if (requestId == weatherRequestId) weatherError = weatherFailureMessage() }
             if (requestId == weatherRequestId) weatherLoading = false
         }
     }
@@ -253,8 +255,28 @@ class WeatherViewModel(application: Application) : AndroidViewModel(application)
             radarError = null
             runCatching { repository.fetchRadar() }
                 .onSuccess { radar = it }
-                .onFailure { radarError = it.message ?: "Nie udało się pobrać radaru" }
+                .onFailure {
+                    radarError = if (isOffline()) "Brak internetu. Radar wymaga połączenia z siecią."
+                    else "Nie udało się pobrać obrazów radaru. Spróbuj ponownie."
+                }
             radarLoading = false
         }
+    }
+
+    private fun weatherFailureMessage(): String {
+        val offline = isOffline()
+        return when {
+            offline && weather != null -> "Brak internetu. Pokazujemy ostatnio zapisaną prognozę."
+            offline -> "Brak internetu. Połącz się z siecią i spróbuj ponownie."
+            weather != null -> "Nie udało się odświeżyć prognozy. Pokazujemy ostatnio zapisaną prognozę."
+            else -> "Nie udało się pobrać prognozy. Spróbuj ponownie."
+        }
+    }
+
+    private fun isOffline(): Boolean {
+        val manager = getApplication<Application>().getSystemService(ConnectivityManager::class.java) ?: return false
+        val network = manager.activeNetwork ?: return true
+        return manager.getNetworkCapabilities(network)
+            ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) != true
     }
 }

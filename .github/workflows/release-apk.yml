@@ -70,7 +70,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release create "$GITHUB_REF_NAME" "$APK_PATH" \
-            --verify-tag --title "Cirral ${GITHUB_REF_NAME#v}" \
-            --notes "Pobierz plik APK poniżej i otwórz go na telefonie z Androidem 8.0 lub nowszym." \
-            --generate-notes --latest
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists; keeping its APK."
+          else
+            gh release create "$GITHUB_REF_NAME" "$APK_PATH" \
+              --verify-tag --title "Cirral ${GITHUB_REF_NAME#v}" \
+              --notes "Pobierz plik APK poniżej i otwórz go na telefonie z Androidem 8.0 lub nowszym." \
+              --generate-notes --latest
+          fi
